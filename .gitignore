@@ -1,0 +1,9 @@
+# 编译产物
+*.exe
+asset-scanner
+asset-scanner.exe
+*.test
+*.out
+
+# 本地配置
+.env
