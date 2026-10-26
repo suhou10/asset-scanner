@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +25,7 @@ type ScanResult struct {
 func main() {
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/scan", scanHandler)
+	http.HandleFunc("/version", versionHandler)
 
 	log.Println("服务启动：http://127.0.0.1:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -32,6 +34,10 @@ func main() {
 // /health：只返回 {"status":"ok"}，用来确认服务活着
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func versionHandler(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"version": "0.1"})
 }
 
 // /scan?url=http://...：请求目标，返回状态码和网页标题
@@ -45,7 +51,17 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 		target = "http://" + target
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	timeoutStr := r.URL.Query().Get("timeout")
+
+	timeout := 5
+	if timeoutStr != "" {
+		num, err := strconv.Atoi(timeoutStr)
+		if err == nil && num > 0 {
+			timeout = num
+		}
+	}
+
+	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
 	resp, err := client.Get(target)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, ScanResult{URL: target, Error: err.Error()})
