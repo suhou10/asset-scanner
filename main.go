@@ -27,8 +27,14 @@ func main() {
 	http.HandleFunc("/scan", scanHandler)
 	http.HandleFunc("/version", versionHandler)
 
+	srv := &http.Server{
+		Addr:              "127.0.0.1:8080",
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second,
+	}
+
 	log.Println("服务启动：http://127.0.0.1:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(srv.ListenAndServe())
 }
 
 // /health：只返回 {"status":"ok"}，用来确认服务活着
@@ -56,7 +62,7 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 	timeout := 5
 	if timeoutStr != "" {
 		num, err := strconv.Atoi(timeoutStr)
-		if err == nil && num > 0 {
+		if err == nil && num > 0 && num < 20 {
 			timeout = num
 		}
 	}
