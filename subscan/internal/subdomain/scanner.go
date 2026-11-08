@@ -2,8 +2,10 @@ package subdomain
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -17,7 +19,8 @@ type Resolver interface {
 type Result struct {
 	Subdomain string   `json:"subdomain"`
 	IPs       []string `json:"ips,omitempty"`
-	Error     string   `json:"error,omitempty"`
+	//服务器没有目标域名的错误不存储
+	Error string `json:"error,omitempty"`
 }
 
 // Scanner 扫描器实例
@@ -46,25 +49,69 @@ func (s *Scanner) Scan(ctx context.Context, domain string, prefixes []string) []
 		go func() {
 			defer wg.Done()
 			for pre := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
 				sub := pre + "." + domain
 				qCtx, cancel := context.WithTimeout(ctx, s.Timeout)
 				ips, err := s.Resolver.LookupHost(qCtx, sub)
 				cancel()
+				if ctx.Err() != nil {
+					return
+				}
 				res := Result{Subdomain: sub}
 				if err != nil {
-					res.Error = err.Error()
-				} else {
-					res.IPs = ips
+					var dnsErr *net.DNSError
+					switch {
+					// 子域名不存在，跳过
+					case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+						continue
+					// 超时 / 上下文取消，跳过（解决你测试失败的核心）
+					case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+
+						continue
+					// 其他DNS错误：你可以选择记录错误，或者continue丢掉
+					default:
+						// 方案A：保留错误记录（Result里带上Error字段）
+						res.Error = err.Error()
+						results <- res
+						continue
+
+						// 方案B：不记录其他错误，直接 continue
+						// continue
+					}
 				}
+
+				res.IPs = ips
+
 				results <- res
 			}
 		}()
 	}
 
+	// 创建集合seen，用来给prefixes去重
+	seen := make(map[string]struct{}, len(prefixes))
+
 	// 投递任务
 	go func() {
 		for _, pre := range prefixes {
-			jobs <- pre
+			pre := strings.ToLower(strings.TrimSpace(pre))
+			if pre == "" || strings.HasPrefix(pre, "#") {
+				continue
+			}
+
+			if _, ok := seen[pre]; ok {
+				continue
+			}
+			seen[pre] = struct{}{}
+
+			select {
+			case jobs <- pre:
+
+			case <-ctx.Done():
+				close(jobs)
+				return
+			}
 		}
 		close(jobs)
 	}()
