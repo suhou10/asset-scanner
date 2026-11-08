@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
 	"time"
 )
 
@@ -20,10 +22,20 @@ func main() {
 	)
 	flag.Parse()
 
+	//对输入参数的值进行校验
+
+	if *workers <= 0 {
+		log.Fatalf("参数错误： -workers 必须大于0，当前值为：%d", *workers)
+	}
+
+	if *timeout <= 0 {
+		log.Fatalf("参数错误： -timeout 必须大于0，当前值为：%d", *timeout)
+	}
+
 	// 读取字典
 	file, err := os.Open(*dictFile)
 	if err != nil {
-		fmt.Printf("打开字典失败: %v\n", err)
+		log.Fatalf("打开字典失败: %v\n", err)
 		return
 	}
 	defer file.Close()
@@ -46,7 +58,13 @@ func main() {
 		Timeout:  *timeout,
 	}
 
-	res := scan.Scan(context.Background(), *domain, prefixes)
-	jsonOut, _ := json.MarshalIndent(res, "", "  ")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	res := scan.Scan(ctx, *domain, prefixes)
+	jsonOut, err := json.MarshalIndent(res, "", "  ")
+
+	if err != nil {
+		log.Fatalf("JSON序列化结果失败: %v", err)
+	}
 	fmt.Println(string(jsonOut))
 }
