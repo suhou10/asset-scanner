@@ -2,6 +2,7 @@ package subdomain
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 )
@@ -13,10 +14,13 @@ type MockResolver struct {
 }
 
 func (m *MockResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
-	if m.mockErr != nil {
-		return nil, m.mockErr
+	if host == "www.example.com" {
+		return m.mockData[host], nil
 	}
-	return m.mockData[host], nil
+	return nil, &net.DNSError{
+		Err:        "no such host",
+		IsNotFound: true,
+	}
 }
 
 func TestScanner_Scan(t *testing.T) {
@@ -36,5 +40,21 @@ func TestScanner_Scan(t *testing.T) {
 
 	if len(results) != 2 {
 		t.Fatalf("预期2条结果，拿到%d", len(results))
+	}
+
+}
+
+//TestScan_Dedup去重测试
+
+func TestScanner_Dedup(t *testing.T) {
+	mock := &MockResolver{}
+	scanner := &Scanner{
+		Resolver: mock,
+		Workers:  2,
+		Timeout:  1 * time.Second,
+	}
+	results := scanner.Scan(context.Background(), "example.com", []string{"www", "www"})
+	if len(results) != 1 {
+		t.Fatalf("dedup fail, expect 1,got %d", len(results))
 	}
 }
